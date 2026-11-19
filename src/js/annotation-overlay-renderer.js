@@ -9,6 +9,9 @@ const STROKE_WIDTH = 4
 const MIN_POINT_DISTANCE = 2
 const strokes = []
 let current = null
+// Where the toolbar sits on top of us. A click there belongs to its buttons, so even
+// when it reaches the canvas instead it must not paint over the UI.
+let toolbarRect = null
 
 function resizeCanvas() {
   const ratio = window.devicePixelRatio || 1
@@ -74,9 +77,20 @@ function pointerPos(e) {
   return { x: e.clientX, y: e.clientY }
 }
 
+function insideToolbar(p) {
+  if (!toolbarRect) return false
+  return (
+    p.x >= toolbarRect.x &&
+    p.x <= toolbarRect.x + toolbarRect.width &&
+    p.y >= toolbarRect.y &&
+    p.y <= toolbarRect.y + toolbarRect.height
+  )
+}
+
 canvas.addEventListener('mousedown', e => {
   if (tool === 'cursor') return
   const p = pointerPos(e)
+  if (insideToolbar(p)) return
 
   current =
     tool === 'pen'
@@ -141,6 +155,11 @@ if (window.electronAPI) {
       strokes.length = 0
       current = null
       redraw()
+    })
+
+  window.electronAPI.onAnnotationToolbarRect &&
+    window.electronAPI.onAnnotationToolbarRect(rect => {
+      toolbarRect = rect
     })
 }
 
