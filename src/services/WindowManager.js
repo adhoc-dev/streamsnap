@@ -827,7 +827,10 @@ class WindowManager {
 
       this.windows.annotationToolbar.on('closed', () => {
         this.windows.annotationToolbar = null
+        this.stopAnnotationToolbarTopReassertion()
       })
+
+      this.startAnnotationToolbarTopReassertion()
 
       return this.windows.annotationToolbar
     } catch (error) {
@@ -842,6 +845,47 @@ class WindowManager {
       try {
         this.windows.annotationOverlay.setIgnoreMouseEvents(!interactive)
       } catch (e) {}
+    }
+  }
+
+  // The overlay is full-screen, so clicking it to draw can raise it over the toolbar and
+  // swallow every click meant for a button. Distinct window levels fix that, but the
+  // `level` argument of setAlwaysOnTop only applies to macOS and Windows — on Linux both
+  // windows share one level and the overlay wins. Re-asserting the toolbar on top is the
+  // cross-platform half, and the same thing startWebcamTopReassertion already does.
+  startAnnotationToolbarTopReassertion() {
+    this.stopAnnotationToolbarTopReassertion()
+
+    this._annotationToolbarTopInterval = setInterval(() => {
+      if (!this.windows.annotationToolbar || this.windows.annotationToolbar.isDestroyed()) {
+        return this.stopAnnotationToolbarTopReassertion()
+      }
+      try {
+        this.windows.annotationToolbar.moveTop()
+      } catch (e) {}
+    }, 300)
+  }
+
+  stopAnnotationToolbarTopReassertion() {
+    if (this._annotationToolbarTopInterval) {
+      clearInterval(this._annotationToolbarTopInterval)
+      this._annotationToolbarTopInterval = null
+    }
+  }
+
+  // Where the toolbar sits inside the overlay, so the overlay can refuse to paint there:
+  // a click that lands on the overlay instead of the button must not scribble over the UI.
+  getAnnotationToolbarRect() {
+    const toolbar = this.windows.annotationToolbar
+    const overlay = this.windows.annotationOverlay
+    if (!toolbar || toolbar.isDestroyed() || !overlay || overlay.isDestroyed()) return null
+
+    try {
+      const t = toolbar.getBounds()
+      const o = overlay.getBounds()
+      return { x: t.x - o.x, y: t.y - o.y, width: t.width, height: t.height }
+    } catch (e) {
+      return null
     }
   }
 

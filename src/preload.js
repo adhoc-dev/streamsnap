@@ -134,6 +134,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       } catch (e) {}
     })
   },
+  onAnnotationToolbarRect: callback => {
+    ipcRenderer.on('annotation:toolbar-rect', (event, rect) => {
+      try {
+        callback(rect)
+      } catch (e) {}
+    })
+  },
   onAnnotationUndo: callback => ipcRenderer.on('annotation:undo', callback),
   onAnnotationClear: callback => ipcRenderer.on('annotation:clear', callback),
   onAnnotationClosed: callback => ipcRenderer.on('annotation:closed', callback),
