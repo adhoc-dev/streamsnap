@@ -698,7 +698,15 @@ class WindowManager {
       }
 
       const display = targetDisplay || screen.getPrimaryDisplay()
-      const bounds = display.bounds || display.workArea
+      // On Linux the window manager keeps windows clear of the panel and the dock, and a
+      // window that does not fit in its monitor's work area gets moved to ANOTHER monitor
+      // (a full-size overlay on the display that holds the panel ended up on the other
+      // one, away from the toolbar and from what is being recorded). Using the work area
+      // means it always fits. Everywhere else the whole display is covered, as before.
+      const bounds =
+        process.platform === 'linux' && display.workArea
+          ? display.workArea
+          : display.bounds || display.workArea
 
       this.windows.annotationOverlay = new BrowserWindow({
         x: bounds.x,
