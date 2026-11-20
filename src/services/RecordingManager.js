@@ -433,6 +433,31 @@ class RecordingManager {
       const sel = this.selectedSource
       const displays = screen.getAllDisplays()
 
+      // Pixel evidence from the DisplayProbe: a color painted on this display was found in
+      // the captured frame. It settles the case where several displays share a resolution.
+      if (sel && sel.confirmedDisplayId != null) {
+        const confirmed = displays.find(display => String(display.id) === String(sel.confirmedDisplayId))
+        if (confirmed) return confirmed
+      }
+
+      // The resolution of the stream that is really being recorded is the most reliable
+      // signal: display_id and display_index depend on desktopCapturer's numbering and
+      // ordering, which on Linux/X11 matches neither screen.getAllDisplays() ids nor its
+      // order (the annotation overlay landed on the monitor that was NOT being recorded).
+      // Only used when it points at exactly one display; with identical monitors the
+      // DisplayProbe above decides, and if it could not, the signals below are the fallback.
+      if (sel && sel.capturedWidth > 0 && sel.capturedHeight > 0) {
+        const byResolution = displays.filter(display => {
+          const scale = display.scaleFactor || 1
+          const size = display.size || display.bounds || {}
+          return (
+            Math.abs(Math.round(size.width * scale) - sel.capturedWidth) <= 2 &&
+            Math.abs(Math.round(size.height * scale) - sel.capturedHeight) <= 2
+          )
+        })
+        if (byResolution.length === 1) return byResolution[0]
+      }
+
       if (sel && sel.display_id != null) {
         const matchById = displays.find(display => String(display.id) === String(sel.display_id))
         if (matchById) return matchById

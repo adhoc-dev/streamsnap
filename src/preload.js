@@ -8,7 +8,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolder: folderPath => ipcRenderer.invoke('open-folder', folderPath),
   copyToClipboard: text => ipcRenderer.invoke('copy-to-clipboard', text),
 
-  startRecording: () => ipcRenderer.invoke('start-recording'),
+  startRecording: captureInfo => ipcRenderer.invoke('start-recording', captureInfo),
+  showDisplayProbe: info => ipcRenderer.invoke('display-probe:show', info),
+  hideDisplayProbe: () => ipcRenderer.invoke('display-probe:hide'),
   pauseRecording: () => ipcRenderer.invoke('pause-recording'),
   resumeRecording: () => ipcRenderer.invoke('resume-recording'),
   restartRecording: () => ipcRenderer.invoke('restart-recording'),
