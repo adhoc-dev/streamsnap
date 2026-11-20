@@ -1,15 +1,34 @@
 const { ipcMain, app: electronApp } = require('electron')
 const DriveAccountManager = require('../services/DriveAccountManager')
 const YouTubeAccountManager = require('../services/YouTubeAccountManager')
+const DisplayProbe = require('../services/DisplayProbe')
 
 class RecordingHandlers {
   constructor(app) {
     this.app = app
     this.registeredStartShortcut = null
+    this.displayProbe = new DisplayProbe()
     this.setupHandlers()
   }
 
   setupHandlers() {
+    // Paints a different color on every monitor that matches the captured size, so the
+    // renderer can find out which one the stream shows. Only paints with 2+ candidates.
+    ipcMain.handle('display-probe:show', async (event, info) => {
+      try {
+        return {
+          candidates: await this.displayProbe.show(info?.capturedWidth, info?.capturedHeight)
+        }
+      } catch (error) {
+        this.displayProbe.hide()
+        return { candidates: [] }
+      }
+    })
+
+    ipcMain.handle('display-probe:hide', () => {
+      this.displayProbe.hide()
+    })
+
     ipcMain.handle('get-desktop-sources', async () => {
       try {
         return await this.app.recordingManager.getDesktopSources()
@@ -18,8 +37,18 @@ class RecordingHandlers {
       }
     })
 
-    ipcMain.handle('start-recording', async () => {
+    ipcMain.handle('start-recording', async (event, captureInfo) => {
       try {
+        const { capturedWidth, capturedHeight, confirmedDisplayId } = captureInfo || {}
+        if (this.app.recordingManager.selectedSource && capturedWidth > 0 && capturedHeight > 0) {
+          this.app.recordingManager.setSelectedSource({
+            ...this.app.recordingManager.selectedSource,
+            capturedWidth,
+            capturedHeight,
+            confirmedDisplayId: confirmedDisplayId != null ? String(confirmedDisplayId) : null
+          })
+        }
+
         // On Linux the source is chosen via the OS display-media picker (getDisplayMedia),
         // so the renderer never goes through the custom source selector and selectedSource
         // is not set in the main process. Provide a placeholder so validation passes.

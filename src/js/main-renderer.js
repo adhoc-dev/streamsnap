@@ -743,6 +743,9 @@ class ScreenRecorder {
         throw new Error('Failed to create media stream')
       }
 
+      // Before the recorder starts, so the color flash of the probe is never recorded.
+      const captureInfo = await this.identifyCapturedDisplay(finalStream, captureSource)
+
       this.recordingState.stream = finalStream
       await this.setupMediaRecorder(finalStream)
 
@@ -766,12 +769,100 @@ class ScreenRecorder {
       this.uiManager.updateRecordingStatus('Recording...', 'recording')
       this.uiManager.disableStartButton()
 
-      await window.electronAPI.startRecording()
+      // Tells the main process what was really captured, so the floating controls and
+      // the annotation overlay open on that monitor (see getTargetDisplay).
+      await window.electronAPI.startRecording(captureInfo)
     } catch (error) {
       this.uiManager.updateRecordingStatus('Error starting recording', 'ready')
       this.recordingState.cleanup()
       this.showRecordingError(error)
     }
+  }
+
+  // Works out which monitor a screen stream is really showing, from the stream itself:
+  //  - its frame size (track.getSettings() right after getUserMedia() can still hold a
+  //    provisional size, on Linux/X11 the primary display's, so the first frame is awaited);
+  //  - if two or more monitors share that size, a color painted on each of them is looked
+  //    for in a captured frame (see DisplayProbe in the main process).
+  async identifyCapturedDisplay(stream, source) {
+    if (!source?.id?.startsWith('screen:')) return undefined
+    const track = stream.getVideoTracks()[0]
+    if (!track) return undefined
+
+    const video = document.createElement('video')
+    video.muted = true
+    video.srcObject = new MediaStream([track])
+    try {
+      await new Promise(resolve => {
+        video.onloadedmetadata = resolve
+        setTimeout(resolve, 2000)
+      })
+      if (!video.videoWidth || !video.videoHeight) return undefined
+
+      const info = { capturedWidth: video.videoWidth, capturedHeight: video.videoHeight }
+      try {
+        const probe = await window.electronAPI.showDisplayProbe(info)
+        if (probe?.candidates?.length > 1) {
+          await video.play().catch(() => {})
+          const displayId = await this.findProbeColorInFrame(video, probe.candidates)
+          if (displayId) info.confirmedDisplayId = displayId
+        }
+      } catch (error) {}
+      return info
+    } finally {
+      video.srcObject = null
+      window.electronAPI.hideDisplayProbe().catch(() => {})
+    }
+  }
+
+  // Samples the center of the captured frame a few times and returns the displayId whose
+  // probe color it contains, or null when no candidate is clearly the one.
+  async findProbeColorInFrame(video, candidates) {
+    const SIZE = 48
+    const canvas = document.createElement('canvas')
+    canvas.width = SIZE
+    canvas.height = SIZE
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    const toRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      if (!video.videoWidth) continue
+      ctx.drawImage(
+        video,
+        (video.videoWidth - SIZE) / 2,
+        (video.videoHeight - SIZE) / 2,
+        SIZE,
+        SIZE,
+        0,
+        0,
+        SIZE,
+        SIZE
+      )
+      const data = ctx.getImageData(0, 0, SIZE, SIZE).data
+      const avg = [0, 0, 0]
+      for (let i = 0; i < data.length; i += 4) {
+        avg[0] += data[i]
+        avg[1] += data[i + 1]
+        avg[2] += data[i + 2]
+      }
+      const pixels = data.length / 4
+      const mean = avg.map(v => v / pixels)
+
+      const ranked = candidates
+        .map(candidate => {
+          const rgb = toRgb(candidate.color)
+          const distance = Math.hypot(mean[0] - rgb[0], mean[1] - rgb[1], mean[2] - rgb[2])
+          return { displayId: candidate.displayId, distance }
+        })
+        .sort((a, b) => a.distance - b.distance)
+
+      // Close to one probe color, and clearly closer than to the runner-up.
+      if (ranked[0].distance < 90 && (ranked.length < 2 || ranked[1].distance - ranked[0].distance > 60)) {
+        return ranked[0].displayId
+      }
+    }
+    return null
   }
 
   async resolveSourceForCapture(source) {
